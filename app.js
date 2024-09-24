@@ -13,7 +13,6 @@ async function scrape(url, username) {
   try {
     browser = await puppeteer.launch({
       headless: true,
-      devtools: true,
     });
     const page = await browser.newPage();
     await page.goto(url, { waitUntil: "networkidle2" });
