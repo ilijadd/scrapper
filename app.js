@@ -34,11 +34,11 @@ async function scrape(url, username) {
         page = await browser.newPage();
         await page.goto(url, { waitUntil: 'networkidle0' });
         
-        await page.waitForSelector('.search-form__input', {timeout: 4000});
+        await page.waitForSelector('.search-form__input', {timeout: 3000});
         await page.type('.search-form__input', username);
         await page.keyboard.press('Enter');
         
-        await page.waitForSelector('.user-info__username-text', { timeout: 30000 });
+        await page.waitForSelector('.user-info__username-text', { timeout: 3000 });
         
         const posts = await page.$eval('.stats__item:nth-child(1) > span:nth-child(1)', el => el.innerText);
         const followers = await page.$eval('.stats__item:nth-child(2) > span:nth-child(1)', el => el.innerText);
@@ -62,8 +62,8 @@ async function scrape(url, username) {
         console.error(`Attempt ${attempt + 1} failed:`, error);
         if (page) await page.close();
         if (browser) await browser.close();
-        if (attempt === 2) throw error;
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        if (attempt === 8) throw error;
+        await new Promise(resolve => setTimeout(resolve, 3000));
       }
     }
   } catch (error) {
