@@ -12,75 +12,66 @@ app.use(
   new LimitingMiddleware({ limit: 10, resetInterval: 86400000 }).limitByIp()
 );
 
-async function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+// Helper funkcija za čekanje
+function delay(time) {
+  return new Promise(function(resolve) {
+    setTimeout(resolve, time);
+  });
 }
 
-async function scrape(url) {
+async function scrape(url, username) {
   let browser;
+  let page;
+
   try {
-    browser = await puppeteer.launch({
-      args: [
-        "--disable-setuid-sandbox",
-        "--no-sandbox",
-        "--single-process",
-        "--no-zygote",
-      ],
-      executablePath:
-        process.env.NODE_ENV === "production"
-          ? process.env.PUPPETEER_EXECUTABLE_PATH
-          : puppeteer.executablePath(),
-    });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        browser = await puppeteer.launch({
+          args: ["--disable-setuid-sandbox", "--no-sandbox", "--single-process", "--no-zygote"],
+          executablePath: process.env.NODE_ENV === "production" ? process.env.PUPPETEER_EXECUTABLE_PATH : puppeteer.executablePath(),
+        });
+        
+        page = await browser.newPage();
+        await page.goto(url, { waitUntil: 'networkidle0' });
+        
+        await page.waitForSelector('.search-form__input', {timeout: 4000});
+        await page.type('.search-form__input', username);
+        await page.keyboard.press('Enter');
+        
+        await page.waitForSelector('.user-info__username-text', { timeout: 30000 });
+        
+        const posts = await page.$eval('.stats__item:nth-child(1) > span:nth-child(1)', el => el.innerText);
+        const followers = await page.$eval('.stats__item:nth-child(2) > span:nth-child(1)', el => el.innerText);
+        const following = await page.$eval('.stats__item:nth-child(3) > span:nth-child(1)', el => el.innerText);
+        
+        const image = await page.$eval('.avatar__image', el => el.src).catch(() => "");
+        const fullName = await page.$eval('.user-info__full-name', el => el.innerText).catch(() => "");
+        const bio = await page.$eval('.user-info__biography', el => el.innerText).catch(() => "");
 
-    const page = await browser.newPage();
-    
+        return {
+          username,
+          posts: posts || 0,
+          full_name: fullName,
+          followers: followers || 0,
+          following: following || 0,
+          bio,
+          image
+        };
 
-    await page.goto(url, { 
-      waitUntil: "networkidle2",
-      timeout: 30000 
-    });
-    
-    await page.waitForSelector("div > div > div > div > h5", {
-      timeout: 30000,
-    });
-
-    const profilePic = await page.evaluate(() => {
-      const img = document.querySelector('img[alt="profile pic"]');
-      return img ? img.src : "";
-    });
-
-    const stats = await page.$$eval("div > div > div > div > h5", (elements) =>
-      elements.map((el) => el.innerText)
-    );
-
-    let bio = "";
-    try {
-      await page.waitForSelector("div > div > div > div > p", {
-        timeout: 5000,
-      });
-      bio = await page.$eval("div > div > div > div > p", (el) => el.innerText);
-    } catch (error) {
-      console.log("Bio not found, using empty string");
+      } catch (error) {
+        console.error(`Attempt ${attempt + 1} failed:`, error);
+        if (page) await page.close();
+        if (browser) await browser.close();
+        if (attempt === 2) throw error;
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
     }
-
-    const result = {
-      username: stats[0],
-      posts: parseInt(stats[1].split(" ")[0]),
-      full_name: "",
-      followers: parseInt(stats[2].split(" ")[0]),
-      following: parseInt(stats[3].split(" ")[0]),
-      bio: bio,
-      image: profilePic,
-    };
-
-    return result;
   } catch (error) {
-    console.error("Error during scraping:", error);
-    throw error; // Propagiramo error umesto vraćanja null
+    console.error("Scraping failed:", error);
+    throw error;
   } finally {
-    if (browser) {
-      await browser.close();
-    }
+    if (page) await page.close();
+    if (browser) await browser.close();
   }
 }
 
@@ -95,18 +86,20 @@ app.post("/scrape", async (req, res) => {
       return res.status(400).json({ error: "Username is required" });
     }
 
-    const url = `https://stealthgram.com/profile/${username}`;
-    const result = await scrape(url);
+    const url = `https://fastdl.app/instagram-anonymously-viewer`;
+    const result = await scrape(url, username);
     res.json(result);
   } catch (error) {
-    console.error("API Error:", error);
-    res.status(500).json({ 
-      error: "Failed to scrape Instagram",
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    console.error("API Greška:", error);
+    res.status(500).json({
+      error: "Neuspešan scraping",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 });
 
+// Ostatak koda ostaje isti...
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
