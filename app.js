@@ -3,16 +3,29 @@ const puppeteer = require("puppeteer");
 require("dotenv").config();
 const LimitingMiddleware = require("limiting-middleware");
 const cors = require("cors");
+const axios = require("axios");
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+app.use(
+  cors({
+    origin: function(origin, callback) {
+      if (!origin || checkOrigin(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type", "x-forwarded-for"],
+    credentials: false,
+  })
+);
 
 app.use(
   new LimitingMiddleware({ limit: 10, resetInterval: 86400000 }).limitByIp()
 );
 
-// Helper funkcija za čekanje
 function delay(time) {
   return new Promise(function(resolve) {
     setTimeout(resolve, time);
@@ -27,26 +40,51 @@ async function scrape(url, username) {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         browser = await puppeteer.launch({
-          args: ["--disable-setuid-sandbox", "--no-sandbox", "--single-process", "--no-zygote"],
-          executablePath: process.env.NODE_ENV === "production" ? process.env.PUPPETEER_EXECUTABLE_PATH : puppeteer.executablePath(),
+          args: [
+            "--disable-setuid-sandbox",
+            "--no-sandbox",
+            "--single-process",
+            "--no-zygote",
+          ],
+          executablePath:
+            process.env.NODE_ENV === "production"
+              ? process.env.PUPPETEER_EXECUTABLE_PATH
+              : puppeteer.executablePath(),
         });
-        
+
         page = await browser.newPage();
-        await page.goto(url, { waitUntil: 'networkidle0' });
-        
-        await page.waitForSelector('.search-form__input', {timeout: 3000});
-        await page.type('.search-form__input', username);
-        await page.keyboard.press('Enter');
-        
-        await page.waitForSelector('.user-info__username-text', { timeout: 3000 });
-        
-        const posts = await page.$eval('.stats__item:nth-child(1) > span:nth-child(1)', el => el.innerText);
-        const followers = await page.$eval('.stats__item:nth-child(2) > span:nth-child(1)', el => el.innerText);
-        const following = await page.$eval('.stats__item:nth-child(3) > span:nth-child(1)', el => el.innerText);
-        
-        const image = await page.$eval('.avatar__image', el => el.src).catch(() => "");
-        const fullName = await page.$eval('.user-info__full-name', el => el.innerText).catch(() => "");
-        const bio = await page.$eval('.user-info__biography', el => el.innerText).catch(() => "");
+        await page.goto(url, { waitUntil: "networkidle0" });
+
+        await page.waitForSelector(".search-form__input", { timeout: 3000 });
+        await page.type(".search-form__input", username);
+        await page.keyboard.press("Enter");
+
+        await page.waitForSelector(".user-info__username-text", {
+          timeout: 3000,
+        });
+
+        const posts = await page.$eval(
+          ".stats__item:nth-child(1) > span:nth-child(1)",
+          (el) => el.innerText
+        );
+        const followers = await page.$eval(
+          ".stats__item:nth-child(2) > span:nth-child(1)",
+          (el) => el.innerText
+        );
+        const following = await page.$eval(
+          ".stats__item:nth-child(3) > span:nth-child(1)",
+          (el) => el.innerText
+        );
+
+        const image = await page
+          .$eval(".avatar__image", (el) => el.src)
+          .catch(() => "");
+        const fullName = await page
+          .$eval(".user-info__full-name", (el) => el.innerText)
+          .catch(() => "");
+        const bio = await page
+          .$eval(".user-info__biography", (el) => el.innerText)
+          .catch(() => "");
 
         return {
           username,
@@ -55,15 +93,14 @@ async function scrape(url, username) {
           followers: followers || 0,
           following: following || 0,
           bio,
-          image
+          image,
         };
-
       } catch (error) {
         console.error(`Attempt ${attempt + 1} failed:`, error);
         if (page) await page.close();
         if (browser) await browser.close();
         if (attempt === 8) throw error;
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await new Promise((resolve) => setTimeout(resolve, 3000));
       }
     }
   } catch (error) {
@@ -76,19 +113,37 @@ async function scrape(url, username) {
 }
 
 app.post("/scrape", async (req, res) => {
+  
   try {
     if (!checkOrigin(req.headers.origin)) {
       return res.status(404).json({ msg: "not allowed" });
     }
 
+    
     const username = req.body.username;
+
     if (!username) {
       return res.status(400).json({ error: "Username is required" });
     }
 
     const url = `https://fastdl.app/instagram-anonymously-viewer`;
     const result = await scrape(url, username);
-    res.json(result);
+    
+    console.log(result);
+    
+    // const url = `https://fanhub.pro/instablogs_ig_viewer?username=${username}`;
+
+    // const result = await axios.get(url);
+    res.json(result)
+
+    // res.json({
+    //   username: result.username,
+    //   posts: result.total_posts,
+    //   followers: result.user_followers,
+    //   following: result.user_following,
+    //   image: result.user_profile_pic,
+    //   bio: "",
+    // });
   } catch (error) {
     console.error("API Greška:", error);
     res.status(500).json({
@@ -126,6 +181,11 @@ function checkOrigin(origin) {
     "https://instablockers.pages.dev",
     "https://instaposts.pages.dev",
     "https://checkstalkers.pages.dev",
+    "https://www.igstalks.com",
+    "https://igstalks.com",
+    "https://igstalks.com/",
+    "www.igstalks.com",
+    "http://localhost:5173",
     "http://localhost:4200",
   ];
 
